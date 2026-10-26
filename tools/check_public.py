@@ -2,6 +2,7 @@
 import argparse
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -29,6 +30,8 @@ def scan(staged):
     return errors
 
 if __name__=='__main__':
+    for stream in (sys.stdout,sys.stderr):
+        if hasattr(stream,'reconfigure'): stream.reconfigure(encoding='utf-8')
     p=argparse.ArgumentParser(description=__doc__); g=p.add_mutually_exclusive_group(required=True)
     g.add_argument('--staged',action='store_true'); g.add_argument('--tracked',action='store_true'); args=p.parse_args()
     errors=scan(args.staged); print('\n'.join(errors) if errors else '公开检查通过；仍需人工核对完整 diff。'); raise SystemExit(bool(errors))
