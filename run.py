@@ -12,6 +12,10 @@ def main(argv=None):
     run=sub.add_parser('run'); group=run.add_mutually_exclusive_group(required=True)
     group.add_argument('--submission',type=Path); group.add_argument('--batch',type=Path)
     run.add_argument('--out',type=Path)
+    run.add_argument('--previous-run',type=Path)
+    env=sub.add_parser('environment'); env.add_argument('--run',type=Path,required=True); env.add_argument('--case',required=True)
+    eg=env.add_mutually_exclusive_group(required=True); eg.add_argument('--requirements',type=Path); eg.add_argument('--plan',type=Path)
+    env.add_argument('--allow-host',action='store_true')
     h=sub.add_parser('handoff'); h.add_argument('--run',type=Path,required=True); h.add_argument('--case',required=True)
     h.add_argument('--role',choices=['executor','reviewer','diagnostician'],required=True); h.add_argument('--actor',type=Path,required=True)
     s=sub.add_parser('submit'); s.add_argument('--packet',type=Path,required=True); s.add_argument('--result',type=Path,required=True)
@@ -27,7 +31,12 @@ def main(argv=None):
                 if batch.get('schema')!='orthogonal-review.batch.v1' or not isinstance(batch.get('submissions'),list): raise ValueError('批次格式无效')
                 submissions=[(args.batch.resolve().parent/Path(p)).resolve() for p in batch['submissions']]
             else: submissions=[args.submission]
-            result={'run':str(prepare(submissions,args.out)),'next':'为 case-0001 创建全新执行会话并 handoff；各题顺序实作三轮。'}
+            result={'run':str(prepare(submissions,args.out,args.previous_run)),'next':'先声明环境需求并完成真实能力 probe，再创建全新执行会话。'}
+        elif args.command=='environment':
+            from orthogonal_review.environment import declare, attempt
+            if args.requirements:
+                declare(args.run,args.case,args.requirements); result={'declared':True}
+            else: result={'receipt':str(attempt(args.run,args.case,args.plan,args.allow_host))}
         elif args.command=='handoff': result={'packet':str(handoff(args.run,args.case,args.role,args.actor))}
         elif args.command=='submit': result=submit(args.packet,args.result)
         elif args.command=='execute':

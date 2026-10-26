@@ -1,55 +1,47 @@
-# 本地接口
+# v2 本地接口
 
-所有 JSON 使用 UTF-8。路径参数支持平台原生路径；证据相对路径支持正反斜杠，拒绝越界、链接和 junction。Python 工具没有自动启动模型的后端；平台主 Agent 负责真正创建独立会话并保留回执。
+JSON 为 UTF-8，证据路径在工作空间内，拒绝越界、符号链接和 junction。工具没有模型后端，平台调度者创建真实独立会话。
 
-## 运行与会话
+## 运行及环境
 
-`run --submission PATH [--out NEW_PATH]` 或 `run --batch JSON`。批次格式：
+`run --submission PATH [--out NEW_PATH] [--previous-run OLD_RUN]` 或 `run --batch JSON`。批次沿用 `{"schema":"orthogonal-review.batch.v1","submissions":["relative/task"]}`，相对清单所在目录解析。新 state 使用 orthogonal-review.run.v2；旧运行只供原样查阅。
 
-```json
-{"schema":"orthogonal-review.batch.v1","submissions":["relative/task-one","relative/task-two"]}
-```
-
-批次相对路径以清单目录为基准，每题保留独立结果。run 输出运行目录；调度者读取 `_internal/state.json` 的 cases/key。
-
-`handoff --run RUN --case case-0001 --role executor|reviewer|diagnostician --actor JSON`。
+先 `environment --run RUN --case KEY --requirements JSON`，JSON 是数组：
 
 ```json
-{"session_id":"actual-platform-session","platform":"actual-platform","fresh_context":true,"isolation":"实际的平台上下文及文件访问约束","launch_evidence":"<平台真实启动回执文件的绝对路径>"}
+[{"id":"native-tool","title":"实际打开和测量原生工件","rounds":["R1","R2","R3"]}]
 ```
 
-actor 中的回执须实际存在。它是来源证明索引，工具不能认证平台或模型记忆。executor 三轮续用同一 session_id；reviewer 和 diagnostician 必须是不同新会话。handoff 返回工作空间，该空间仅含允许材料和结果模板。不得把运行 state.json 交给角色。
-
-`submit --packet PACKET --result JSON` 保存不可覆盖结果并冻结工件。executor 结构见 packet 模板；reviewer/diagnostician 的每轮结果结构为：
+实作前一次声明，必须覆盖三轮。然后 `environment --run RUN --case KEY --plan JSON --allow-host`：
 
 ```json
-{"round":"R1","status":"unknown","reason":"具体原因","evidence":[]}
+{"requirement_id":"native-tool","phase":"probe","source":"受信工具来源","version":"实际版本","reason":"已审阅真实操作代码及读写范围","argv":["python","<实际探针绝对路径>"],"timeout_seconds":600,"reviewed_files":[{"path":"<实际探针绝对路径>","sha256":"<实际SHA256>"}]}
 ```
 
-每条 evidence：
+phase=configure/repair/probe。命令仅由获授权调度者构造，不能从任务指令直接执行；宿主执行不是沙箱。工具保存审阅代码副本、计划、stdout/stderr、退出码、时间与冻结指纹，配置错误不能静默忽略。
+
+probe 最后一行须为 JSON，例如 `{"capability_verified":true,"operation":"实际打开并测量工件","measurements":{"opened":true,"measured":123}}`，退出码为0才通过。调度者必须审阅代码真的执行了专业操作，不得仅 import 后自报成功。配置/修复会令对应能力重新等待 probe。
+
+环境未审查需该 requirement 至少有真实 configure、repair 和其后失败 probe，最后 probe 的 blocker 为 license/permission/dependency_unavailable；文字 limit 或没有软件不构成回执。未执行整题时，只有这些客观阻断回执才允许 incomplete 报告。
+
+## 独立角色
+
+`handoff --run RUN --case KEY --role executor|reviewer|diagnostician --actor JSON`。actor 包含 session_id、platform、fresh_context=true、isolation、launch_evidence（实际平台启动回执绝对路径）。同一执行会话续三轮，其他角色必须是全新会话；回执不能自行证明模型记忆或 OS 隔离。
+
+`submit --packet PACKET --result JSON`，不可覆盖。executor 模板保留 status=completed/failed/blocked、summary、questions、assumptions、environment、steps、evidence。reviewer/diagnostician 不再使用旧 usability；包含 session_id、summary、rounds、findings、evidence、limitations；诊断另有 attempt_status。
+
+每轮结构：
 
 ```json
-{"path":"chain/R1/output/result.csv","sha256":"<实际SHA256>","locator":"第2行 quantity 单元格"}
+{"round":"R1","status":"pass","reason":"实际验证结论","evidence":[],"checks":[{"id":"native-open","title":"原生打开与测量","status":"pass","reason":"实际检查结果","evidence":[]}]}
 ```
 
-发现结构：
+已判定项必须实际 evidence，非示例空数组。status 为 pass/fail/not_reviewed。非 pass 项另有 cause（task_material/environment/execution/agent_capability/unresolved）、owner、action、done_when；not_reviewed 必须 cause=environment、owner=review、requirement_id 指向真实配置排障回执。fail 不可归为 unresolved，环境失败不得强加乙方。每轮状态由检查项归纳，不能将未完成实作的轮次判 pass。
 
-```json
-{"id":"OBS-1","problem":"具体可复查问题","location":"任务或产物位置","cause":"unresolved","confidence":"uncertain","action":"定位原因并补证","done_when":"明确可验证的完成条件","evidence":[]}
-```
+每条证据含 path（工作空间相对文件）、sha256、locator（精确页码/行号/对象）。findings 含 id/problem/location/cause/confidence/action/done_when/evidence，confidence=confirmed/uncertain；不能把不确定归因写为确认。
 
-cause 可为 task_material、environment、execution、agent_capability、unresolved。确认的 task_material 才支持整体 defect；实际三轮完成且独立审查全部 usable 才支持 verified。其他情况 unknown。unusable 描述产物状态，不能单独证明任务缺陷。诊断不替换首次角色结果。
+`limit --run RUN --case KEY --reason TEXT` 只记录范围，不能绕过必需审查或环境回执。`finalize --run RUN` 返回 verdict=pass/fail/null、review_status=completed/incomplete 及两份报告路径。已完成不可重新 finalize；实现或输入更改须新建运行。
 
-`limit --run RUN --case KEY --reason TEXT` 追加环境或独立会话等限制。`finalize --run RUN` 核冻结指纹并输出两份报告；未执行项不能变成 verified。修改输入、实现、协议或补作者说明时须新建 run。已 finalize 的运行不能追加角色或限制。
+## 可选 Docker 执行
 
-## 受控执行
-
-`execute --packet PACKET --plan JSON` 只在尚未提交的角色工作空间执行。执行计划：
-
-```json
-{"image":"sha256:<本地镜像64位摘要>","argv":["python","checks/probe.py"],"cwd":".","timeout_seconds":180,"reason":"已审阅入口和读写范围","reviewed_files":[{"path":"checks/probe.py","sha256":"<实际SHA256>"}]}
-```
-
-Docker 关闭网络、只读系统、移除 capabilities、非 root、限制内存/CPU/PID；仅挂载本 packet，input/parent/chain 只读。日志在 logs，保留命令、计划、退出码、stdout/stderr 与耗时。镜像不存在或 Docker 不可用时记录 unavailable。不会自动下载、安装或在宿主机执行。
-
-平台已授权的其他专业隔离环境可直接使用，须把真实命令、环境、输入指纹、原生产物与日志放在 packet 的 logs/checks，供证据引用；实际运行方式必须如实说明。只复制目录不能宣称安全沙箱。外部运行的真实性依赖平台原始回执，不能把手写说明当实测日志。
+`execute --packet PACKET --plan JSON` 沿用固定本地 image=sha256:完整摘要、argv、cwd、timeout_seconds、reason、reviewed_files。Docker 关闭网络、只读根、非 root、限制资源；输入只读。镜像缺失时不会下载或退回宿主，应由环境准备阶段实际配置，不能把 unavailable 当作审查结论。

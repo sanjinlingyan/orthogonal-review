@@ -1,53 +1,61 @@
+"""Compact client report; operational details stay in the private run record."""
 from html import escape
+from urllib.parse import quote
 
-WORDS={'verified':'已验证可完成且可用','defect':'已确认存在任务或交付缺陷','unknown':'尚无法确定',
-       'completed':'完成','failed':'执行失败','blocked':'阻塞','usable':'可用','unusable':'不可用','open':'未提交',
-       'task_material':'任务材料/交付缺陷','environment':'环境问题','execution':'执行问题','agent_capability':'Agent 能力限制','unresolved':'原因未明',
-       'executor':'冷启动实作','reviewer':'独立产物审查','diagnostician':'独立诊断'}
-def h(value): return escape(str(value),quote=True)
-def md(value): return str(value).replace('<','&lt;').replace('>','&gt;').replace('\r','').replace('\n',' ')
+WORDS={'pass':'通过','fail':'不通过','not_reviewed':'未审查',None:'未完成审查',
+       'completed':'已完成审查','incomplete':'未完成审查','task_material':'任务材料/交付',
+       'environment':'审查环境','execution':'执行结果','agent_capability':'Agent 能力','unresolved':'原因未明'}
+
+def h(x): return escape(str(x),quote=True)
+def md(x): return str(x).replace('<','&lt;').replace('>','&gt;').replace('\r','').replace('\n',' ')
 def ev_text(e): return f"{e['path']} — {e['locator']} · SHA256 {e['sha256']}"
 
+
 def render(state):
-    summary=[]; details=[]; findings=[]
-    repair=['# 正交审查修复单','',f"**结论：{WORDS[state['verdict']]}**",'',
-            '你是乙方修复 Agent。按下面的现场证据修复交付；不要修改甲方原始材料、审查记录或用参考答案替换实作。修复后提交新版本并新建冷启动运行。',
-            '', '任务缺陷、执行错误、环境问题和原因未明分别处理；Agent 失败不自动证明任务有缺陷。','']
-    for c in state['cases']:
-        summary.append(f"<tr><td>{h(c['label'])}</td><td>{h(WORDS[c['verdict']])}</td></tr>")
-        body=[]
-        for p in c['packets']:
-            r=p.get('result',{})
-            verdict=r.get('status',r.get('usability','open'))
-            body.append(f"<h3>{h(WORDS[p['role']])} {h(p['round'] or '')} · {h(WORDS.get(verdict,verdict))}</h3><p>{h(r.get('summary','本角色尚未提交结果'))}</p>")
-            body.append(f"<p class='muted'>会话：{h(p['actor']['session_id'])}；隔离方式：{h(p['actor']['isolation'])}。会话身份来自平台回执和调度记录，文件指纹不证明模型记忆隔离。</p>")
-            for key in ('questions','assumptions','steps','limitations'):
-                if r.get(key): body.append(f"<details><summary>{h({'questions':'澄清问题','assumptions':'采用的假设','steps':'实际步骤','limitations':'判断限制'}[key])}</summary><ul>"+''.join(f'<li>{h(x)}</li>' for x in r[key])+'</ul></details>')
-            if r.get('evidence'):
-                body.append(f"<details><summary>本角色判断的直接证据</summary><p class='muted'>相对根目录：{h(p['folder'])}</p><ul>"+''.join(f'<li>{h(ev_text(e))}</li>' for e in r['evidence'])+'</ul></details>')
-            for rr in r.get('rounds',[]):
-                body.append(f"<details><summary>{h(rr['round'])}：{h(WORDS[rr['status']])}</summary><p>{h(rr['reason'])}</p><ul>"+''.join(f'<li>{h(ev_text(e))}</li>' for e in rr['evidence'])+'</ul></details>')
-            for f in r.get('findings',[]):
-                title=f"{c['label']} · {f['id']} · {WORDS[f['cause']]}"
-                findings.append((f['confidence']=='confirmed' and f['cause']=='task_material',title,f['problem']))
-                body.append(f"<details><summary>{h(title)} · {h(f['confidence'])}</summary><p>{h(f['problem'])}</p><p>位置：{h(f['location'])}</p><p>行动：{h(f['action'])}</p><p>验证条件：{h(f['done_when'])}</p><ul>"+''.join(f'<li>{h(ev_text(e))}</li>' for e in f['evidence'])+'</ul></details>')
-                repair.extend([f'## {md(title)}','',f"归因状态：{md(f['confidence'])}",'',f"问题：{md(f['problem'])}",'',f"位置：{md(f['location'])}",'',f"行动：{md(f['action'])}",'',f"完成条件：{md(f['done_when'])}",'',f"证据根目录：{p['folder']}",'',*['- '+md(ev_text(e)) for e in f['evidence']],''])
-        if c['missing_rounds']: body.append(f"<p>未提供轮次材料：{h(', '.join(c['missing_rounds']))}</p>")
-        limitations=[x['reason'] for x in state['limitations'] if x['case_key']==c['key']]
-        if c['verdict']=='unknown' and not limitations: limitations=['现有实作和独立检查尚不足以确认三轮可完成且可用；详见角色状态及证据。']
-        for reason in limitations:
-            body.append(f'<p class="unknown">限制：{h(reason)}</p>')
-            repair.extend([f"## {md(c['label'])} · 待补证或环境条件",'',md(reason),'','行动：核实缺失条件并提交实际证据；环境问题由环境负责人处理，原因未明保留待定。',''])
-        details.append(f"<section><h2>{h(c['label'])} · {h(WORDS[c['verdict']])}</h2>{''.join(body)}</section>")
-    major=''.join(f'<li><strong>{h(title)}</strong><p>{h(problem)}</p></li>' for _,title,problem in sorted(findings,key=lambda x:not x[0])[:5])
-    if not major: major='<li>没有已记录的具体缺陷；是否已验证可用请看总体结论与各题执行范围。</li>'
-    if not findings and state['verdict']=='verified': repair.extend(['没有需修复事项。本结论仅覆盖本次任务、版本、环境和实际执行范围。',''])
-    repair.extend(['## 重审','', '保留本次输入、失败现场及所有尝试。修订交付、补充说明或更换执行条件后，建立新的运行；不挑选最好一次覆盖原结果。',''])
+    rows=[]; items=[]; detail=[]; counts={k:0 for k in ('pass','fail','not_reviewed')}
+    repair=['# 正交审查修复单','',f"**结论：{WORDS[state['verdict']]}；{WORDS[state['review_status']]}**",'',
+            '甲方审查：任务缺陷、实作错误与审查环境责任分别处理。不能把未审查写成乙方缺陷。保留首次现场，修订交付或更换执行条件后新建运行。','']
+    for case in state['cases']:
+        packet=next((p for p in case['packets'] if p['role']=='reviewer' and p['status']=='submitted'),None)
+        rounds=packet['result']['rounds'] if packet else case['unreviewed_rounds']
+        root=packet['folder'] if packet else '_internal/environment'
+        for rr in rounds:
+            checks=rr['checks']
+            for ch in checks: counts[ch['status']]+=1
+            round_refs=''.join(f"<li><a href='{quote(root+'/'+e['path'],safe='/')}'>{h(e['locator'])}</a></li>" for e in rr.get('evidence',[]))
+            evidence_detail=f'<details><summary>依据</summary><ul>{round_refs}</ul></details>' if round_refs else ''
+            rows.append(f"<tr><td>{h(case['label'])}</td><td>{h(rr['round'])}</td><td class='{h(rr['status'])}'>{WORDS[rr['status']]}</td><td>{h(rr['reason'])}{evidence_detail}</td></tr>")
+            for ch in checks:
+                if ch['status']=='pass': continue
+                title=f"{rr['round']} · {ch['title']}"
+                evidence=ch.get('evidence',[])
+                short='；'.join(e['locator'] for e in evidence[:2]) or '环境配置与排障回执'
+                refs=''.join(f"<li><a href='{quote(root+'/'+e['path'],safe='/')}'>{h(e['locator'])}</a></li>" for e in evidence)
+                items.append(f"<article><h3>{h(title)} · {WORDS[ch['status']]}</h3><p>{h(ch['reason'])}</p><p>影响与下一步：{h(ch['action'])}</p><p class='muted'>依据：{h(short)}</p><details><summary>查看证据</summary><ul>{refs}</ul></details></article>")
+                repair.extend([f"## {md(case['label'])} / {md(title)}",'',f"状态：{WORDS[ch['status']]}；归因：{WORDS[ch['cause']]}；责任方：{md(ch['owner'])}",'',
+                    f"问题及影响：{md(ch['reason'])}",'',f"位置：{rr['round']} / {md(ch['id'])}",'',f"行动：{md(ch['action'])}",'',f"复验条件：{md(ch['done_when'])}",'',f"证据根目录：{root}",'',*['- '+md(ev_text(e)) for e in evidence],''])
+                if ch.get('requirement_id'):
+                    for event in case['environment_events']:
+                        if event['requirement_id']==ch['requirement_id']:
+                            repair.append(f"- 环境回执：{event['folder']}/receipt.json；阶段 {event['phase']}；退出码 {event['exit_code']}；目录 SHA256 {event['sha256']}")
+        if packet:
+            for f in packet['result']['findings']:
+                repair.extend([f"### 发现 {md(f['id'])}",'',f"{md(f['problem'])}；位置：{md(f['location'])}",'',f"归因：{WORDS[f['cause']]} / {md(f['confidence'])}",'',f"行动：{md(f['action'])}",'',f"完成条件：{md(f['done_when'])}",'',*['- '+md(ev_text(e)) for e in f['evidence']],''])
+        for limit in state['limitations']:
+            if limit['case_key']==case['key']: detail.append(h(limit['reason']))
+    headline=WORDS[state['verdict']]
+    reason=(f"{counts['fail']} 项不通过，需要处理后复验。" if counts['fail'] else
+            '所有必要项目均已完成实作及独立验证。' if state['verdict']=='pass' else
+            '真实配置和排障后仍有必要项目未审查，当前不作质量判定。')
+    if not items:
+        items=['<p>本轮未发现需修复问题。</p>']
+        repair.extend(['无需修复事项；结论仅覆盖本次版本、实际任务与验证范围。',''])
+    repair.extend(['## 私有追溯记录','',f"运行编号：{state['run_id']}",'','完整平台回执、环境配置、角色结果及证据均在 `_internal/`。不要改写旧记录。',''])
     html=f'''<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
-<title>Orthogonal Review · {h(WORDS[state['verdict']])}</title><style>
-body{{font-family:system-ui,'Microsoft YaHei',sans-serif;max-width:1080px;margin:32px auto;padding:0 22px;background:#f1f5f7;color:#172f3b;line-height:1.7}}header,section{{background:white;border:1px solid #dce4e8;border-radius:14px;padding:26px;margin:18px 0}}h1{{font-size:32px}}h2{{font-size:22px}}h3{{font-size:17px}}td,th{{text-align:left;padding:12px;border-bottom:1px solid #ddd}}table{{width:100%}}.muted{{color:#607681;font-size:13px}}.unknown{{color:#946000}}details{{padding:12px 0;border-bottom:1px solid #e8edf0}}p,li,td{{overflow-wrap:anywhere}}a{{color:#126b76}}@media(max-width:650px){{body{{padding:0 10px}}header,section{{padding:18px}}h1{{font-size:26px}}}}</style></head><body>
-<header><p class="muted">ORTHOGONAL REVIEW / 甲方独立实作审查</p><h1>{h(WORDS[state['verdict']])}</h1><p>判断实际接手、完成和使用情况。执行者的失败与任务缺陷分别归因，无法证实的事项保留未确定。</p><p><a href="repair.md">给乙方 Agent 的修复单</a></p><p class="muted">{h(state['run_id'])} · {h(state['finalized_at'])}</p></header>
-<section><h2>最需要关注的发现</h2><ol>{major}</ol></section><section><h2>逐题结论</h2><table><thead><tr><th>提交</th><th>结论</th></tr></thead><tbody>{''.join(summary)}</tbody></table></section>
-{''.join(details)}<section><h2>证据与范围</h2><p>详细机器记录、平台回执索引、角色输入和冻结产物保存在本运行的 _internal 目录。没有独立执行与产物证据时，报告不能确认可完成且可用。</p><p class="muted">实现指纹：{h(state['implementation'])}</p></section></body></html>'''
+<title>正交审查 · {headline}</title><style>
+body{{font:16px/1.65 system-ui,'Microsoft YaHei',sans-serif;max-width:1040px;margin:32px auto;padding:0 20px;background:#f5f7f9;color:#18313b}}header,section{{background:white;padding:24px;border:1px solid #dfe6eb;border-radius:12px;margin:16px 0}}h1{{font-size:36px;margin:8px 0}}h2{{font-size:21px}}h3{{font-size:17px}}.muted{{color:#607482;font-size:13px}}.pass{{color:#136648}}.fail{{color:#b52d35}}.not_reviewed{{color:#89600b}}table{{border-collapse:collapse;width:100%;font-size:14px}}td,th{{padding:10px;text-align:left;border-bottom:1px solid #e3e9ec;vertical-align:top}}td:last-child{{width:58%}}article{{border-top:1px solid #e3e9ec;padding:12px 0}}a{{color:#076879}}p,td{{overflow-wrap:anywhere}}@media(max-width:650px){{body{{padding:0 8px}}header,section{{padding:16px}}td,th{{padding:6px}}}}
+</style></head><body><header><p class="muted">ORTHOGONAL REVIEW · 甲方独立实作审查</p><h1>{headline}</h1><p>{h(reason)}</p><p>通过 <b>{counts['pass']}</b> · 不通过 <b>{counts['fail']}</b> · 未审查 <b>{counts['not_reviewed']}</b> ｜ {WORDS[state['review_status']]}</p><a href="repair.md">Agent 修复单</a></header>
+<section><h2>审查结果</h2><table><thead><tr><th>提交</th><th>轮次</th><th>结论</th><th>说明</th></tr></thead><tbody>{''.join(rows)}</tbody></table></section>
+<section><h2>需要处理的事项</h2>{''.join(items)}</section><section><details><summary>审查范围与追溯</summary><p>独立冷启动实作与产物复核，不代替合同逐项验收。</p>{''.join('<p>'+x+'</p>' for x in detail)}<p class="muted">{h(state['run_id'])} · {h(state['finalized_at'])} · 内部记录：_internal/state.json</p></details></section></body></html>'''
     return html,'\n'.join(repair)
