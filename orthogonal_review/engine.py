@@ -18,10 +18,10 @@ def implementation():
     import hashlib
     return hashlib.sha256("".join(sha(p) for p in paths).encode()).hexdigest()
 
-def verify(run, state):
+def verify(run, state, check_implementation=True):
     if state.get('schema') != 'orthogonal-review.run.v2':
         raise ValueError('旧运行仅供原样查阅；请新建 v2 运行，不迁移或改写旧报告')
-    if state["implementation"] != implementation(): raise ValueError("流程实现已变化，请新建运行")
+    if check_implementation and state["implementation"] != implementation(): raise ValueError("流程实现已变化，请新建运行")
     from .environment import verify_environment
     verify_environment(run, state)
     for c in state["cases"]:

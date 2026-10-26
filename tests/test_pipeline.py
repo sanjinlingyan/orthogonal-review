@@ -326,4 +326,21 @@ class PipelineTests(unittest.TestCase):
             os.chdir(previous)
         self.assertTrue(load(run)['cases'][0]['requirements_receipt'])
 
+    def test_new_presentation_preserves_archived_audit_and_links(self):
+        from orthogonal_review.reporting import export
+        self.chain();p=self.packet('reviewer',self.make_actor('fictional-reviewer'));self.review(p);finalize(self.run)
+        original=(self.run/'review.html').read_bytes();state_bytes=(self.run/'_internal/state.json').read_bytes()
+        out=self.root/'new-presentation';result=export(self.run,out)
+        self.assertEqual(result['verdict'],'pass')
+        self.assertEqual(original,(self.run/'review.html').read_bytes());self.assertEqual(state_bytes,(self.run/'_internal/state.json').read_bytes())
+        self.assertIn('../run/_internal/packets/',(out/'review.html').read_text(encoding='utf-8'))
+        self.assertEqual(read(out/'_internal/provenance.json')['audit_state_sha256'],sha(self.run/'_internal/state.json'))
+        with self.assertRaises(ValueError):export(self.run,out)
+
+    def test_presentation_rejects_tampered_evidence(self):
+        from orthogonal_review.reporting import export
+        packets=self.chain();p=self.packet('reviewer',self.make_actor('fictional-reviewer'));self.review(p);finalize(self.run)
+        (packets[0]/'output/artifact.txt').write_text('tampered')
+        with self.assertRaises(ValueError):export(self.run,self.root/'presentation')
+
 if __name__=='__main__': unittest.main()

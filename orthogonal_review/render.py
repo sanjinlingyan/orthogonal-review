@@ -19,12 +19,13 @@ def render(state):
         packet=next((p for p in case['packets'] if p['role']=='reviewer' and p['status']=='submitted'),None)
         rounds=packet['result']['rounds'] if packet else case['unreviewed_rounds']
         root=packet['folder'] if packet else '_internal/environment'
+        rows.append(f"<tr class='subject'><th colspan='3'>{h(case['label'])}</th></tr>")
         for rr in rounds:
             checks=rr['checks']
             for ch in checks: counts[ch['status']]+=1
             round_refs=''.join(f"<li><a href='{quote(root+'/'+e['path'],safe='/')}'>{h(e['locator'])}</a></li>" for e in rr.get('evidence',[]))
             evidence_detail=f'<details><summary>依据</summary><ul>{round_refs}</ul></details>' if round_refs else ''
-            rows.append(f"<tr><td>{h(case['label'])}</td><td>{h(rr['round'])}</td><td class='{h(rr['status'])}'>{WORDS[rr['status']]}</td><td>{h(rr['reason'])}{evidence_detail}</td></tr>")
+            rows.append(f"<tr><td class='round'>{h(rr['round'])}</td><td class='decision {h(rr['status'])}'>{WORDS[rr['status']]}</td><td>{h(rr['reason'])}{evidence_detail}</td></tr>")
             for ch in checks:
                 if ch['status']=='pass': continue
                 title=f"{rr['round']} · {ch['title']}"
@@ -54,8 +55,8 @@ def render(state):
     html=f'''<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
 <title>正交审查 · {headline}</title><style>
-body{{font:16px/1.65 system-ui,'Microsoft YaHei',sans-serif;max-width:1040px;margin:32px auto;padding:0 20px;background:#f5f7f9;color:#18313b}}header,section{{background:white;padding:24px;border:1px solid #dfe6eb;border-radius:12px;margin:16px 0}}h1{{font-size:36px;margin:8px 0}}h2{{font-size:21px}}h3{{font-size:17px}}.muted{{color:#607482;font-size:13px}}.pass{{color:#136648}}.fail{{color:#b52d35}}.not_reviewed{{color:#89600b}}table{{border-collapse:collapse;width:100%;font-size:14px}}td,th{{padding:10px;text-align:left;border-bottom:1px solid #e3e9ec;vertical-align:top}}td:last-child{{width:58%}}article{{border-top:1px solid #e3e9ec;padding:12px 0}}a{{color:#076879}}p,td{{overflow-wrap:anywhere}}@media(max-width:650px){{body{{padding:0 8px}}header,section{{padding:16px}}td,th{{padding:6px}}}}
+body{{font:16px/1.65 system-ui,'Microsoft YaHei',sans-serif;max-width:1040px;margin:32px auto;padding:0 20px;background:#f5f7f9;color:#18313b}}header,section{{background:white;padding:24px;border:1px solid #dfe6eb;border-radius:12px;margin:16px 0}}h1{{font-size:36px;margin:8px 0}}h2{{font-size:21px}}h3{{font-size:17px}}.muted{{color:#607482;font-size:13px}}.pass{{color:#136648}}.fail{{color:#b52d35}}.not_reviewed{{color:#89600b}}table{{border-collapse:collapse;width:100%;font-size:14px}}td,th{{padding:10px;text-align:left;border-bottom:1px solid #e3e9ec;vertical-align:top}}.round,.decision,thead th{{white-space:nowrap}}.subject th{{background:#f5f8fa;font-weight:500;overflow-wrap:anywhere}}article{{border-top:1px solid #e3e9ec;padding:12px 0}}a{{color:#076879}}p,td{{overflow-wrap:anywhere}}@media(max-width:650px){{body{{padding:0 8px}}header,section{{padding:16px}}td,th{{padding:6px}}}}
 </style></head><body><header><p class="muted">ORTHOGONAL REVIEW · 甲方独立实作审查</p><h1>{headline}</h1><p>{h(reason)}</p><p>通过 <b>{counts['pass']}</b> · 不通过 <b>{counts['fail']}</b> · 未审查 <b>{counts['not_reviewed']}</b> ｜ {WORDS[state['review_status']]}</p><a href="repair.md">Agent 修复单</a></header>
-<section><h2>审查结果</h2><table><thead><tr><th>提交</th><th>轮次</th><th>结论</th><th>说明</th></tr></thead><tbody>{''.join(rows)}</tbody></table></section>
-<section><h2>需要处理的事项</h2>{''.join(items)}</section><section><details><summary>审查范围与追溯</summary><p>独立冷启动实作与产物复核，不代替合同逐项验收。</p>{''.join('<p>'+x+'</p>' for x in detail)}<p class="muted">{h(state['run_id'])} · {h(state['finalized_at'])} · 内部记录：_internal/state.json</p></details></section></body></html>'''
+<section><h2>审查结果</h2><table><colgroup><col style="width:4em"><col style="width:5em"><col></colgroup><thead><tr><th>轮次</th><th>结论</th><th>说明</th></tr></thead><tbody>{''.join(rows)}</tbody></table></section>
+<section><h2>需要处理的事项</h2>{''.join(items)}</section><section><details><summary>审查范围与追溯</summary><p>独立冷启动实作与产物复核，不代替合同逐项验收。</p>{''.join('<p>'+x+'</p>' for x in detail)}<p class="muted">{h(state['run_id'])} · {h(state['finalized_at'])} · 内部记录：{h(state.get('record_path','_internal/state.json'))}</p></details></section></body></html>'''
     return html,'\n'.join(repair)

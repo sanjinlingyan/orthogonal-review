@@ -22,6 +22,7 @@ def main(argv=None):
     e=sub.add_parser('execute'); e.add_argument('--packet',type=Path,required=True); e.add_argument('--plan',type=Path,required=True)
     l=sub.add_parser('limit'); l.add_argument('--run',type=Path,required=True); l.add_argument('--case',required=True); l.add_argument('--reason',required=True)
     f=sub.add_parser('finalize'); f.add_argument('--run',type=Path,required=True)
+    report=sub.add_parser('report');report.add_argument('--run',type=Path,required=True);report.add_argument('--out',type=Path,required=True)
     d=sub.add_parser('demo'); d.add_argument('--out',type=Path,required=True)
     args=parser.parse_args(argv)
     try:
@@ -44,6 +45,9 @@ def main(argv=None):
             result={'receipt':str(execute(args.packet,args.plan))}
         elif args.command=='limit': limitation(args.run,args.case,args.reason); result={'recorded':True}
         elif args.command=='finalize': result=finalize(args.run)
+        elif args.command=='report':
+            from orthogonal_review.reporting import export
+            result=export(args.run,args.out)
         else:
             from orthogonal_review.demo import create
             result={'submission':str(create(args.out))}

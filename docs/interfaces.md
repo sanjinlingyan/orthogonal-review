@@ -45,3 +45,5 @@ probe 最后一行须为 JSON，例如 `{"capability_verified":true,"operation":
 ## 可选 Docker 执行
 
 `execute --packet PACKET --plan JSON` 沿用固定本地 image=sha256:完整摘要、argv、cwd、timeout_seconds、reason、reviewed_files。Docker 关闭网络、只读根、非 root、限制资源；输入只读。镜像缺失时不会下载或退回宿主，应由环境准备阶段实际配置，不能把 unavailable 当作审查结论。
+
+报告版面升级可使用 `python run.py report --run <已冻结v2运行> --out <新的报告目录>`。仅导出呈现，核对原证据与结论，旧报告和审查记录不变；证据链接指向原运行，两个目录须在同一盘符。
