@@ -318,7 +318,12 @@ class PipelineTests(unittest.TestCase):
         run=prepare([self.source],self.root/'relative-run')
         req=self.root/'relative-requirements.json'
         write(req,[dict(id='tool',title='fixture',rounds=['R1','R2','R3'])])
-        declare(os.path.relpath(run,Path.cwd()),'case-0001',req)
+        previous=Path.cwd()
+        try:
+            os.chdir(self.root)
+            declare(Path('relative-run'),'case-0001',req)
+        finally:
+            os.chdir(previous)
         self.assertTrue(load(run)['cases'][0]['requirements_receipt'])
 
 if __name__=='__main__': unittest.main()
